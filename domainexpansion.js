@@ -2757,6 +2757,7 @@ var frida_java_bridge_1 = __webpack_require__(/*! frida-java-bridge */ "./node_m
 var _b = logging_1.Color.use(), red = _b.red, green = _b.green, redBright = _b.redBright, pink = _b.magentaBright, gray = _b.gray, dim = _b.dim, black = _b.black;
 var uniqHook = (0, hooks_1.getHookUnique)(false);
 var uniqFind = (0, common_1.getFindUnique)(false);
+var callerPrefix = function () { return "(".concat((0, hooks_1.getHookCaller)(), ") "); };
 var uniqEnum = function (clazzName, depth) {
     uniqFind(clazzName, function (clazz) {
         (0, hooks_1.hook)(clazz, '$init', { loggingPredicate: function (method) { return method.argumentTypes.length > 0; } });
@@ -2771,43 +2772,49 @@ dump_1.dumpLib;
 logging_1.logger.info({ tag: 'processid' }, "".concat(Process.id));
 function hookActivity() {
     (0, hooks_1.hook)(common_1.Classes.Activity, '$init', {
+        caller: true,
         after: function () {
-            logging_1.logger.info({ tag: 'activity' }, "".concat(gray('$init'), ": ").concat(this.$className));
+            logging_1.logger.info({ tag: 'activity' }, "".concat(callerPrefix()).concat(gray('$init'), ": ").concat(this.$className));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.Activity, 'onCreate', {
+        caller: true,
         after: function () {
-            logging_1.logger.info({ tag: 'activity' }, "".concat(gray('onCreate'), ": ").concat(this.$className));
+            logging_1.logger.info({ tag: 'activity' }, "".concat(callerPrefix()).concat(gray('onCreate'), ": ").concat(this.$className));
         },
         logging: { arguments: false },
     });
     (0, hooks_1.hook)(common_1.Classes.Activity, 'onResume', {
+        caller: true,
         after: function () {
-            logging_1.logger.info({ tag: 'activity' }, "".concat(gray('onResume'), ": ").concat(this.$className));
+            logging_1.logger.info({ tag: 'activity' }, "".concat(callerPrefix()).concat(gray('onResume'), ": ").concat(this.$className));
             var clz = (0, common_1.findClass)(this.$className);
             globalThis.resumed = frida_java_bridge_1.default.retain(clz ? frida_java_bridge_1.default.cast(this, clz) : this);
         },
         logging: { arguments: false },
     });
-    (0, hooks_1.hook)(common_1.Classes.Activity, 'startActivity');
-    (0, hooks_1.hook)(common_1.Classes.Activity, 'startActivities');
+    (0, hooks_1.hook)(common_1.Classes.Activity, 'startActivity', { caller: true });
+    (0, hooks_1.hook)(common_1.Classes.Activity, 'startActivities', { caller: true });
 }
 function hookWebview(trace) {
     var logging = { short: true };
     (0, hooks_1.hook)(common_1.Classes.WebView, 'evaluateJavascript', {
+        caller: true,
         logging: __assign(__assign({}, logging), { transform: function (value, type, id) { return (id === 0 ? common_1.Text.maxLengh(value, 300) : value); } }),
     });
     (0, hooks_1.hook)(common_1.Classes.WebView, 'loadDataWithBaseURL', {
+        caller: true,
         logging: __assign(__assign({}, logging), { transform: function (value, type, id) { return (id === 1 ? common_1.Text.maxLengh(value, 300) : value); } }),
     });
     (0, hooks_1.hook)(common_1.Classes.WebView, 'loadUrl', {
+        caller: true,
         logging: logging,
         after: function () {
             if (trace) {
                 var strace = (0, common_1.stacktrace)();
                 if (!strace.includes('com.google.android.gms.ads.internal.webview.') &&
                     !strace.includes('com.google.android.gms.internal.')) {
-                    logging_1.logger.info(pink(strace));
+                    logging_1.logger.info("".concat(callerPrefix()).concat(pink(strace)));
                 }
             }
         },
@@ -2815,14 +2822,16 @@ function hookWebview(trace) {
 }
 function hookNetwork() {
     (0, hooks_1.hook)(common_1.Classes.URL, 'openConnection', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.url,
         replace: function (method) {
             var args = [];
             for (var _i = 1; _i < arguments.length; _i++) {
                 args[_i - 1] = arguments[_i];
             }
-            logging_1.logger.info({ tag: 'connection' }, "".concat(logging_1.Color.url(this.toString())));
-            logging_1.logger.info({ tag: 'connection' }, "".concat(pink((0, common_1.stacktrace)())));
+            var caller = callerPrefix();
+            logging_1.logger.info({ tag: 'connection' }, "".concat(caller).concat(logging_1.Color.url(this.toString())));
+            logging_1.logger.info({ tag: 'connection' }, "".concat(caller).concat(pink((0, common_1.stacktrace)())));
             if ("".concat(this.toString()).includes('gzvsrl-gcdsdk.appsflyersdk.com')) {
                 return method.call.apply(method, __spreadArray([common_1.Classes.URL.$new('https://jsonplaceholder.typicode.com/posts')], args, false));
             }
@@ -2835,23 +2844,26 @@ function hookNetwork() {
             (RealCall = (0, common_1.findClass)('okhttp3.internal.connection.RealCall')) &&
             'callStart' in RealCall &&
             (0, hooks_1.hook)(RealCall, 'callStart', {
+                caller: true,
                 after: function () {
                     var _a, _b, _c;
                     var original = (_a = this.originalRequest) === null || _a === void 0 ? void 0 : _a.value;
                     if (original) {
+                        var caller = callerPrefix();
                         var url = (_b = original._url) === null || _b === void 0 ? void 0 : _b.value;
                         var method = (_c = original._method) === null || _c === void 0 ? void 0 : _c.value;
                         logging_1.logger.info(
                         //@ts-ignore
-                        "".concat(dim(method), " ").concat(logging_1.Color.url(
+                        "".concat(caller).concat(dim(method), " ").concat(logging_1.Color.url(
                         //@ts-ignore
                         common_1.Classes.String.valueOf(url))));
-                        logging_1.logger.info({ tag: 'call' }, pink((0, common_1.stacktrace)()));
+                        logging_1.logger.info({ tag: 'call' }, "".concat(caller).concat(pink((0, common_1.stacktrace)())));
                     }
                 },
             });
     });
     (0, hooks_1.hook)(common_1.Classes.InetSocketAddress, '$init', {
+        caller: true,
         logging: { multiline: false, short: true },
     });
     function byteBufferToBase64(buffer, limit) {
@@ -2867,22 +2879,27 @@ function hookNetwork() {
         return b64;
     }
     (0, hooks_1.hook)(common_1.Classes.DatagramChannelImpl, 'send', {
+        caller: true,
         before: function (method, buffer) {
+            var caller = callerPrefix();
             var b64 = byteBufferToBase64(buffer);
-            logging_1.logger.info({ tag: 'send' }, "".concat(this.localAddress(), " -> ").concat(this.remoteAddress(), " | ").concat(gray("".concat(b64))));
-            logging_1.logger.info({ tag: 'send' }, pink((0, common_1.stacktrace)()));
+            logging_1.logger.info({ tag: 'send' }, "".concat(caller).concat(this.localAddress(), " -> ").concat(this.remoteAddress(), " | ").concat(gray("".concat(b64))));
+            logging_1.logger.info({ tag: 'send' }, "".concat(caller).concat(pink((0, common_1.stacktrace)())));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.DatagramChannelImpl, 'read', {
+        caller: true,
         logging: { multiline: false },
         after: function (method, returnValue, buffer) {
+            var caller = callerPrefix();
             buffer.position(0);
             var b64 = byteBufferToBase64(buffer, returnValue);
-            logging_1.logger.info({ tag: 'read' }, "".concat(this.remoteAddress(), " -> ").concat(this.localAddress(), " | ").concat(gray("".concat(b64))));
-            logging_1.logger.info({ tag: 'read' }, pink((0, common_1.stacktrace)()));
+            logging_1.logger.info({ tag: 'read' }, "".concat(caller).concat(this.remoteAddress(), " -> ").concat(this.localAddress(), " | ").concat(gray("".concat(b64))));
+            logging_1.logger.info({ tag: 'read' }, "".concat(caller).concat(pink((0, common_1.stacktrace)())));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.DatagramSocket, 'send', {
+        caller: true,
         logging: {
             multiline: false,
             transform: function (value, type, id) {
@@ -2891,6 +2908,7 @@ function hookNetwork() {
         },
     });
     (0, hooks_1.hook)(common_1.Classes.DatagramSocket, 'receive', {
+        caller: true,
         logging: {
             multiline: false,
             transform: function (value, type, id) {
@@ -2898,7 +2916,7 @@ function hookNetwork() {
             },
         },
     });
-    (0, hooks_1.hook)(common_1.Classes.Socket, 'connect', { logging: { short: true, multiline: false } });
+    (0, hooks_1.hook)(common_1.Classes.Socket, 'connect', { caller: true, logging: { short: true, multiline: false } });
 }
 function hookFile() {
     var _loop_1 = function (mth, id) {
@@ -2967,28 +2985,31 @@ function hookRuntimeExec() {
     //   },
     // });
     (0, hooks_1.hook)(common_1.Classes.ProcessBuilder, 'start', {
+        caller: true,
         before: function (method) {
             var args = [];
             for (var _i = 1; _i < arguments.length; _i++) {
                 args[_i - 1] = arguments[_i];
             }
             var newlist = [];
+            var caller = callerPrefix();
             var command = this.command();
             for (var _a = 0, _b = command.toArray(); _a < _b.length; _a++) {
                 var cmdpart = _b[_a];
                 if ("".concat(cmdpart) === 'su') {
-                    logging_1.logger.info({ tag: 'process' }, "thorw ".concat(command));
+                    logging_1.logger.info({ tag: 'process' }, "".concat(caller, "thorw ").concat(command));
                     throw common_1.Classes.IOException.$new();
                 }
                 newlist.push(mReplace(cmdpart));
             }
-            logging_1.logger.info({ tag: 'process' }, "".concat(newlist, " ").concat(pink((0, common_1.stacktrace)())));
+            logging_1.logger.info({ tag: 'process' }, "".concat(caller).concat(newlist, " ").concat(pink((0, common_1.stacktrace)())));
             this.command.apply(this, args);
         },
     });
 }
 function hookCrypto() {
     (0, hooks_1.hook)(common_1.Classes.SecretKeySpec, '$init', {
+        caller: true,
         logging: {
             multiline: false,
             short: true,
@@ -2998,6 +3019,7 @@ function hookCrypto() {
         },
     });
     (0, hooks_1.hook)(common_1.Classes.Cipher, 'getInstance', {
+        caller: true,
         logging: { multiline: false, short: true },
     });
     Dump.hookDoFinalDump();
@@ -3007,6 +3029,7 @@ function hookJson(fn) {
     var getOpt = ['get', 'opt'];
     var types = ['Boolean', 'Double', 'Int', 'JSONArray', 'JSONObject', 'Long', 'String'];
     (0, hooks_1.hook)(common_1.Classes.JSONObject, '$init', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.json,
         logging: { short: true },
         predicate: function (_, index) { return index !== 0; },
@@ -3021,6 +3044,7 @@ function hookJson(fn) {
         },
     });
     (0, hooks_1.hook)(common_1.Classes.JSONObject, 'has', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.json,
         logging: logging,
         replace: function (method, key) {
@@ -3031,6 +3055,7 @@ function hookJson(fn) {
     });
     var _loop_2 = function (item) {
         (0, hooks_1.hook)(common_1.Classes.JSONObject, item, {
+            caller: true,
             loggingPredicate: hooks_1.Filter.json,
             logging: logging,
             replace: function (method) {
@@ -3053,6 +3078,7 @@ function hookJson(fn) {
         var _loop_3 = function (item) {
             var name = "".concat(item).concat(type);
             (0, hooks_1.hook)(common_1.Classes.JSONObject, name, {
+                caller: true,
                 loggingPredicate: hooks_1.Filter.json,
                 logging: logging,
                 replace: function (method) {
@@ -3075,6 +3101,7 @@ function hookJson(fn) {
 function hookPrefs(fn) {
     var keyFns = ['getBoolean', 'getFloat', 'getInt', 'getLong', 'getString', 'getStringSet'];
     (0, hooks_1.hook)(common_1.Classes.SharedPreferencesImpl, 'contains', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.prefs,
         logging: { multiline: false, short: true },
         replace: (0, hooks_1.compat)(function () {
@@ -3084,6 +3111,7 @@ function hookPrefs(fn) {
     });
     var _loop_4 = function (item) {
         (0, hooks_1.hook)(common_1.Classes.SharedPreferencesImpl, item, {
+            caller: true,
             loggingPredicate: hooks_1.Filter.prefs,
             logging: { multiline: false, short: true },
             replace: (0, hooks_1.compat)(function () {
@@ -3130,16 +3158,19 @@ function hookPreferences(fn) {
                     };
                     'contains' in this &&
                         (0, hooks_1.hook)(this.$className, 'contains', {
+                            caller: true,
                             replace: fn ? contains : undefined,
                             logging: { short: true, multiline: false },
                         });
                     'get' in this &&
                         (0, hooks_1.hook)(this.$className, 'get', {
+                            caller: true,
                             replace: fn ? get : undefined,
                             logging: { short: true, multiline: false },
                         });
                     'asMap' in this &&
                         (0, hooks_1.hook)(this.$className, 'asMap', {
+                            caller: true,
                             logging: { short: true, multiline: false },
                         });
                 },
@@ -3147,6 +3178,7 @@ function hookPreferences(fn) {
         !Preferences$Key &&
             (Preferences$Key = (0, common_1.findClass)(common_1.ClassesString.Preferences$Key)) &&
             (0, hooks_1.hook)(Preferences$Key, '$init', {
+                caller: true,
                 logging: { multiline: false, short: true },
             });
     });
@@ -3160,11 +3192,13 @@ function hookFirestore() {
         if (!FirebaseFirestore &&
             (FirebaseFirestore = (0, common_1.findClass)('com.google.firebase.firestore.FirebaseFirestore'))) {
             (0, hooks_1.hook)(FirebaseFirestore, '$init', {
+                caller: true,
                 predicate: function (overload) { return overload.argumentTypes.length > 0; },
                 logging: { short: true },
             });
             'collection' in FirebaseFirestore &&
                 (0, hooks_1.hook)(FirebaseFirestore, 'collection', {
+                    caller: true,
                     logging: { short: true, multiline: false },
                 });
         }
@@ -3172,15 +3206,18 @@ function hookFirestore() {
             (QueryDocumentSnapshot = (0, common_1.findClass)('com.google.firebase.firestore.QueryDocumentSnapshot'))) {
             'getId' in QueryDocumentSnapshot &&
                 (0, hooks_1.hook)(QueryDocumentSnapshot, 'getId', {
+                    caller: true,
                     logging: { short: true, multiline: false },
                 });
             'getData' in QueryDocumentSnapshot &&
                 (0, hooks_1.hook)(QueryDocumentSnapshot, 'getData', {
+                    caller: true,
                     logging: { short: true, multiline: false },
                 });
         }
         if (!QuerySnapshot && (QuerySnapshot = (0, common_1.findClass)('com.google.firebase.firestore.QuerySnapshot'))) {
             (0, hooks_1.hook)(QuerySnapshot, '$init', {
+                caller: true,
                 loggingPredicate: function (method) { return method.argumentTypes.length > 0; },
                 logging: { short: true },
             });
@@ -3188,6 +3225,7 @@ function hookFirestore() {
         if (!DocumentSnapshot &&
             (DocumentSnapshot = (0, common_1.findClass)('com.google.firebase.firestore.DocumentSnapshot'))) {
             (0, hooks_1.hook)(DocumentSnapshot, '$init', {
+                caller: true,
                 logging: { short: true },
                 loggingPredicate: function (method) {
                     var args = [];
@@ -3197,7 +3235,7 @@ function hookFirestore() {
                     return args.length > 0;
                 },
             });
-            'get' in DocumentSnapshot && (0, hooks_1.hook)(DocumentSnapshot, 'get', { logging: { short: true } });
+            'get' in DocumentSnapshot && (0, hooks_1.hook)(DocumentSnapshot, 'get', { caller: true, logging: { short: true } });
         }
     };
     hooks_1.ClassLoader.perform(fn);
@@ -3393,10 +3431,11 @@ frida_java_bridge_1.default.performNow(function () {
         }
     });
     var one = !true;
-    (0, hooks_1.hook)(common_1.Classes.SharedPreferencesImpl$EditorImpl, 'putString', {});
+    (0, hooks_1.hook)(common_1.Classes.SharedPreferencesImpl$EditorImpl, 'putString', { caller: true });
     hookPreferences(function () { });
     hookFirestore();
     (0, hooks_1.hook)(common_1.Classes.Intent, 'getExtras', {
+        caller: true,
         before: function (method) {
             var args = [];
             for (var _i = 1; _i < arguments.length; _i++) {
@@ -3409,6 +3448,7 @@ frida_java_bridge_1.default.performNow(function () {
         },
     });
     (0, hooks_1.hook)(common_1.Classes.Intent, 'getStringExtra', {
+        caller: true,
         replace: function (method, key) {
             return method.call(this, key);
         },
@@ -3421,15 +3461,18 @@ frida_java_bridge_1.default.performNow(function () {
     //     logging: { multiline: false, short: true, return: false },
     // });
     (0, hooks_1.hook)(common_1.Classes.Process, 'killProcess', {
+        caller: true,
         after: function () {
-            logging_1.logger.info({ tag: 'process' }, redBright((0, common_1.stacktrace)()));
+            logging_1.logger.info({ tag: 'process' }, "".concat(callerPrefix()).concat(redBright((0, common_1.stacktrace)())));
         },
         logging: { multiline: false, return: false },
     });
     (0, hooks_1.hook)(common_1.Classes.ActivityManager, 'getRunningAppProcesses', {
+        caller: true,
         logging: { short: true, multiline: false },
     });
     (0, hooks_1.hook)(common_1.Classes.ActivityManager$RunningAppProcessInfo, '$init', {
+        caller: true,
         logging: { short: true, multiline: false },
     });
     // hook(Classes.Activity, 'finish', { replace: () => {}, logging: { multiline: false, return: false } });
@@ -3450,6 +3493,7 @@ frida_java_bridge_1.default.performNow(function () {
     //   install_referrer: INSTALL_REFERRER,
     // });
     (0, hooks_1.hook)(common_1.Classes.SystemProperties, 'get', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.systemproperties,
         logging: { multiline: false, short: true },
         replace: (0, hooks_1.ifKey)(function (key) {
@@ -3458,6 +3502,7 @@ frida_java_bridge_1.default.performNow(function () {
         }),
     });
     (0, hooks_1.hook)(common_1.Classes.System, 'getProperty', {
+        caller: true,
         loggingPredicate: hooks_1.Filter.systemprop,
         logging: { multiline: false, short: true },
         replace: function (method) {
@@ -3472,24 +3517,27 @@ frida_java_bridge_1.default.performNow(function () {
         },
     });
     (0, hooks_1.hook)(common_1.Classes.MediaSession, 'setMediaButtonReceiver', {
+        caller: true,
         after: function (method, returnValue) {
             var args = [];
             for (var _i = 2; _i < arguments.length; _i++) {
                 args[_i - 2] = arguments[_i];
             }
-            logging_1.logger.info({ tag: 'BAL' }, pink((0, common_1.stacktrace)()));
+            logging_1.logger.info({ tag: 'BAL' }, "".concat(callerPrefix()).concat(pink((0, common_1.stacktrace)())));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.DisplayManager, 'createVirtualDisplay', {
+        caller: true,
         after: function (method, returnValue) {
             var args = [];
             for (var _i = 2; _i < arguments.length; _i++) {
                 args[_i - 2] = arguments[_i];
             }
-            logging_1.logger.info({ tag: 'BAL' }, pink((0, common_1.stacktrace)()));
+            logging_1.logger.info({ tag: 'BAL' }, "".concat(callerPrefix()).concat(pink((0, common_1.stacktrace)())));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.SimpleDateFormat, 'parse', {
+        caller: true,
         logging: { short: true, multiline: false },
     });
     // hook(Classes.SimpleDateFormat, 'format', {
@@ -3524,7 +3572,7 @@ frida_java_bridge_1.default.performNow(function () {
             for (var _i = 2; _i < arguments.length; _i++) {
                 args[_i - 2] = arguments[_i];
             }
-            logging_1.logger.info({ tag: args[0], id: 'log.d' }, args[1]);
+            logging_1.logger.info({ tag: args[0], id: 'log.d' }, "".concat(callerPrefix()).concat(args[1]));
         },
     });
     (0, hooks_1.hook)(common_1.Classes.File, 'delete', {
@@ -3571,7 +3619,7 @@ frida_java_bridge_1.default.performNow(function () {
     Dump.hookByteBufferDump();
 });
 hooks_1.ClassLoader.perform(function (l) {
-    uniqHook('androidx.datastore.core.MyDataStoreImpKt', 'getStoreData');
+    uniqHook('androidx.datastore.core.MyDataStoreImpKt', 'getStoreData', { caller: true });
     uniqEnum('androidx.datastore.core.MyDataStoreImpKt');
     uniqEnum('androidx.datastore.preferences.core.PreferencesKt', 1);
     uniqFind('androidx.datastore.preferences.core.MutablePreferences', function (mp) {
@@ -3579,6 +3627,7 @@ hooks_1.ClassLoader.perform(function (l) {
             var methodname = _a[_i];
             methodname in mp &&
                 (0, hooks_1.hook)(mp, methodname, {
+                    caller: true,
                     logging: { short: true, multiline: false },
                 });
         }
@@ -3597,6 +3646,7 @@ hooks_1.ClassLoader.perform(function (l) {
         return str;
     }
     uniqHook('io.flutter.embedding.engine.FlutterJNI', 'handlePlatformMessage', {
+        caller: true,
         logging: {
             transform: function (value, type, id) {
                 return id === 1 ? [byteBufferToString(value), common_1.ClassesString.String] : [value, type];
@@ -26272,30 +26322,38 @@ function mock(keyOrConfig) {
     const number = `${config.code}${_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Text.stringNumber(10)}`;
     const mccmnc = `${config.mcc}${config.mnc}`;
     const subscriber = `${mccmnc}${_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Text.stringNumber(15 - mccmnc.length)}`;
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getLine1Number', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(number) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getLine1Number', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(number) });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getSimOperator', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(mccmnc),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getSimOperatorName', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.operator),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getNetworkOperator', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(mccmnc),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getNetworkOperatorName', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.operator),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getSimCountryIso', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.country),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getNetworkCountryIso', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.country),
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getSubscriberId', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(subscriber),
     });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TimeZone, 'getID', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.timezoneId) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TimeZone, 'getID', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(config.timezoneId) });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TimeZone, 'getDefault', {
+        caller: true,
         replace() {
             return _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TimeZone.getTimeZone('timezoneId');
         },
@@ -26328,6 +26386,7 @@ function mock(keyOrConfig) {
         logging: { call: false, return: false },
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.Date, 'getTime', {
+        caller: true,
         loggingPredicate: _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.Filter.date,
         // replace(method, ...args) {
         //     const calendar = Classes.Calendar.getInstance(Classes.TimeZone.getTimeZone('UTC'));
@@ -26357,6 +26416,7 @@ function mock(keyOrConfig) {
     const SkuClass = findClass(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.ClassesString.SkuDetails);
     if (SkuClass) {
         (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(SkuClass, 'getPriceCurrencyCode', {
+            caller: true,
             replace(method, ...args) {
                 let code = method.call(this, ...args);
                 try {
@@ -26408,10 +26468,10 @@ function hookPtrace() {
     }, 'long', ['int', 'int', 'pointer', 'pointer']));
 }
 function hookVMDebug() {
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.Debug, 'waitingForDebugger', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'isDebuggerConnected', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'isDebuggingEnabled', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'lastDebuggerActivity', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(-1) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.Debug, 'waitingForDebugger', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'isDebuggerConnected', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'isDebuggingEnabled', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.VMDebug, 'lastDebuggerActivity', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(-1) });
 }
 function hookDigestEquals() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.MessageDigest, 'equals', {
@@ -26425,7 +26485,7 @@ function hookDigestEquals() {
     });
 }
 function hookVerify() {
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.Signature, 'verify', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.Signature, 'verify', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
 }
 
 //# sourceMappingURL=debug.js.map
@@ -26853,7 +26913,6 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _clockwork_common__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @clockwork/common */ "./packages/common/dist/index.js");
 /* harmony import */ var _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @clockwork/hooks */ "./packages/hooks/dist/index.js");
-/* harmony import */ var _clockwork_logging__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! @clockwork/logging */ "./packages/logging/dist/index.js");
 /* harmony import */ var _buildprop_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./buildprop.js */ "./packages/anticloak/dist/buildprop.js");
 /* harmony import */ var _hidemaps_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./hidemaps.js */ "./packages/anticloak/dist/hidemaps.js");
 /* harmony import */ var _country_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./country.js */ "./packages/anticloak/dist/country.js");
@@ -26870,47 +26929,6 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-
-const settingsCallerKeys = new Set([
-    'adb_enabled',
-    'development_settings_enabled',
-]);
-const settingsFrameworkPrefixes = [
-    'java.',
-    'javax.',
-    'android.',
-    'com.android.',
-    'dalvik.',
-    'sun.',
-];
-let collectingSettingsStack = false;
-function getSettingsCaller() {
-    if (collectingSettingsStack)
-        return '<unknown>';
-    collectingSettingsStack = true;
-    try {
-        const frames = Java.use('java.lang.Exception').$new().getStackTrace();
-        for (let i = 0; i < frames.length; i++) {
-            const className = `${frames[i].getClassName()}`;
-            if (settingsFrameworkPrefixes.some((prefix) => className.startsWith(prefix)))
-                continue;
-            return `${className}.${frames[i].getMethodName()}`;
-        }
-    }
-    catch (_) { }
-    finally {
-        collectingSettingsStack = false;
-    }
-    return '<unknown>';
-}
-function logSettingsCaller(key) {
-    if (!settingsCallerKeys.has(key))
-        return;
-    try {
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_9__.logger.info({ tag: 'settings-caller' }, `${key} <- ${getSettingsCaller()}`);
-    }
-    catch (_) { }
-}
 function hookDevice(fn) {
     (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.enumerateMembers)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.Build, {
         onMatchField(clazz, member) {
@@ -26941,9 +26959,7 @@ function hookSettings(fn) {
         (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(clazz, 'getInt', {
             loggingPredicate: _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.Filter.settings,
             logging: { multiline: false, short: true },
-            before(_, ...args) {
-                logSettingsCaller(`${args[1]}`);
-            },
+            caller: true,
             replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.ifKey)((key) => fn?.(key) ?? mapper(key), 1),
         });
     }
@@ -26952,12 +26968,13 @@ function hookAdId(id = _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Text.uuid(
     const uniqFind = (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.getFindUnique)(false);
     _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.ClassLoader.perform(() => {
         uniqFind('com.google.android.gms.ads.identifier.AdvertisingIdClient$Info', (clazz) => {
-            'getId' in clazz && (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(clazz, 'getId', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(id) });
+            'getId' in clazz && (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(clazz, 'getId', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(id) });
         });
     });
 }
 function hookInstallerPackage() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.ApplicationPackageManager, 'getInstallerPackageName', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)('com.android.vending'),
         logging: {
             short: true,
@@ -26967,6 +26984,7 @@ function hookInstallerPackage() {
 }
 function hookLocationHardware() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.LocationManager, 'getGnssHardwareModelName', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)('Model Name Nya'),
     });
 }
@@ -26992,6 +27010,7 @@ function hookVerify() {
 function hookHasFeature() {
     const HARDWARE_FEATURES = ['android.hardware.camera.flash', 'android.hardware.nfc'];
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.ApplicationPackageManager, 'hasSystemFeature', {
+        caller: true,
         logging: { short: true, multiline: false },
         predicate(_, i) {
             return i !== 0;
@@ -27014,10 +27033,12 @@ function hookHasFeature() {
 }
 function hookBatteryManager() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.BatteryManager, 'isCharging', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(false),
         logging: { short: true, multiline: false },
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.BatteryManager, 'getIntProperty', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.ifKey)((key) => {
             switch (`${key}`) {
                 case '4': // battery level
@@ -27041,6 +27062,7 @@ function hookWindowFlags() {
 }
 function hookNetwork() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInterface, 'getNetworkInterfaces', {
+        caller: true,
         replace(method, ...args) {
             const vec = _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.Vector.$new(1);
             vec.add(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInterface.$new('nya_interface', 0, [_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.InetAddress.getLocalHost()]));
@@ -27048,29 +27070,34 @@ function hookNetwork() {
         },
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'getState', {
+        caller: true,
         replace: () => {
             //@ts-ignore
             return _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo$State.valueOf('CONNECTED');
         },
     });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isAvailable', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isConnected', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isConnectedOrConnecting', { replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isAvailable', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isConnected', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.NetworkInfo, 'isConnectedOrConnecting', { caller: true, replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true) });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getSimState', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(5),
         logging: { multiline: false, short: true },
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'getDataState', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(2),
         logging: { multiline: false, short: true },
     });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.TelephonyManager, 'isDataEnabled', {
+        caller: true,
         replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.always)(true),
         logging: { multiline: false, short: true },
     });
 }
 function hookSystemOs() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.Os, 'uname', {
+        caller: true,
         after(method, returnValue, ...args) {
             returnValue.release.value = '5.10';
             returnValue.machine.value = '';
@@ -27388,6 +27415,7 @@ const ROOT_PACKAGES = [
 ];
 function hookPackageManager() {
     const hookParams = {
+        caller: true,
         logging: { multiline: false, short: true },
         replace(method, ...args) {
             if (ROOT_PACKAGES.includes(`${args[0]}`)) {
@@ -27408,6 +27436,7 @@ function hookPackageManager() {
     });
     const listHookParams = (cast) => {
         return {
+            caller: true,
             logging: { multiline: false, short: true },
             replace(method, ...args) {
                 return Classes.ArrayList.$new();
@@ -27423,9 +27452,10 @@ function hookPackageManager() {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.ApplicationPackageManager, 'getInstalledApplications', listHookParams(Classes.ApplicationInfo));
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.ApplicationPackageManager, 'getInstalledPackages', listHookParams(Classes.PackageInfo));
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.ApplicationPackageManager, 'queryIntentActivities', {
+        caller: true,
         logging: { short: true, multiline: false },
     });
-    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.UsageStatsManager, 'queryEvents', { logging: { short: true, multiline: false } });
+    (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.UsageStatsManager, 'queryEvents', { caller: true, logging: { short: true, multiline: false } });
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_0__.hook)(Classes.UsageEvents, 'getNextEvent', {
         replace(method, eventOut) {
             method.call(this, eventOut);
@@ -32262,6 +32292,7 @@ __webpack_require__.r(__webpack_exports__);
 
 function hookDoFinalDump(decrypt = true, encrypt = false, minimum = 256) {
     (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(Classes.Cipher, 'doFinal', {
+        caller: true,
         after(_, returnValue, ...args) {
             const isEnc = this.opmode.value === 1;
             const isDec = this.opmode.value === 2;
@@ -32280,7 +32311,8 @@ function hookDoFinalDump(decrypt = true, encrypt = false, minimum = 256) {
             if (tag == null || data == null)
                 return;
             let str = tryAsAnyString(data);
-            _clockwork_logging__WEBPACK_IMPORTED_MODULE_2__.logger.info({ tag: tag }, `${str} ${_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Text.toByteSize(data.size ?? data.length ?? 0)}`);
+            const caller = `(${(0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.getHookCaller)()}) `;
+            _clockwork_logging__WEBPACK_IMPORTED_MODULE_2__.logger.info({ tag: tag }, `${caller}${str} ${_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Text.toByteSize(data.size ?? data.length ?? 0)}`);
             if ((isEnc && encrypt) || (isDec && decrypt && minimum < (data.size ?? data.length ?? 0))) {
                 // this can save bytes to file easily
                 try {
@@ -33049,6 +33081,7 @@ function countIncludes(text, substring) {
 __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   findHook: () => (/* binding */ findHook),
+/* harmony export */   getHookCaller: () => (/* binding */ getHookCaller),
 /* harmony export */   getHookUnique: () => (/* binding */ getHookUnique),
 /* harmony export */   hook: () => (/* binding */ hook)
 /* harmony export */ });
@@ -33062,8 +33095,36 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+const hookCallerFrameworkPrefixes = [
+    'java.',
+    'javax.',
+    'android.',
+    'com.android.',
+    'dalvik.',
+    'sun.',
+];
+let collectingHookCaller = false;
+function getHookCaller() {
+    if (collectingHookCaller)
+        return '<unknown>';
+    collectingHookCaller = true;
+    try {
+        const frames = Java.use('java.lang.Exception').$new().getStackTrace();
+        for (let i = 0; i < frames.length; i++) {
+            const className = `${frames[i].getClassName()}`;
+            if (hookCallerFrameworkPrefixes.some((prefix) => className.startsWith(prefix)))
+                continue;
+            return `${className}.${frames[i].getMethodName()}`;
+        }
+    }
+    catch (_) { }
+    finally {
+        collectingHookCaller = false;
+    }
+    return '<unknown>';
+}
 function hook(clazzOrName, methodName, params = {}) {
-    const { before, replace, after, logging, loggingPredicate } = params;
+    const { before, replace, after, logging, loggingPredicate, caller } = params;
     const logger = (0,_logger_js__WEBPACK_IMPORTED_MODULE_4__.getLogger)(logging);
     const clazz = (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_1__.isJWrapper)(clazzOrName) ? clazzOrName : frida_java_bridge__WEBPACK_IMPORTED_MODULE_0__["default"].use(clazzOrName);
     const method = clazz[methodName];
@@ -33087,13 +33148,16 @@ function hook(clazzOrName, methodName, params = {}) {
         logger.printHookMethod(methodName, argTypesString, returnTypeString, logId);
         methodDef.implementation = function (...params) {
             const doLog = loggingPredicate?.call(this, methodDef, ...params) ?? true;
+            const hasCallOutput = logging?.call !== false;
+            const hasReturnOutput = returnTypeString !== 'void' && logging?.return !== false;
+            const hookCaller = doLog && caller === true && (hasCallOutput || hasReturnOutput) ? getHookCaller() : undefined;
             doLog &&
-                logger.printCall(classString, methodName, params, argTypesString, returnTypeString, logId, replace !== undefined);
+                logger.printCall(classString, methodName, params, argTypesString, returnTypeString, logId, replace !== undefined, hookCaller);
             before?.call(this, methodDef, ...params);
             const retval = replace?.call(this, methodDef, ...params) ?? methodDef.call(this, ...params);
             after?.call(this, methodDef, retval, ...params);
             if (returnTypeString !== 'void')
-                doLog && logger.printReturn(retval, returnTypeString, logId);
+                doLog && logger.printReturn(retval, returnTypeString, logId, hookCaller);
             return retval;
         };
     }
@@ -33182,6 +33246,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */   always: () => (/* reexport safe */ _addons_js__WEBPACK_IMPORTED_MODULE_2__.always),
 /* harmony export */   compat: () => (/* reexport safe */ _addons_js__WEBPACK_IMPORTED_MODULE_2__.compat),
 /* harmony export */   findHook: () => (/* reexport safe */ _hook_js__WEBPACK_IMPORTED_MODULE_1__.findHook),
+/* harmony export */   getHookCaller: () => (/* reexport safe */ _hook_js__WEBPACK_IMPORTED_MODULE_1__.getHookCaller),
 /* harmony export */   getHookLogger: () => (/* reexport safe */ _logger_js__WEBPACK_IMPORTED_MODULE_4__.getLogger),
 /* harmony export */   getHookUnique: () => (/* reexport safe */ _hook_js__WEBPACK_IMPORTED_MODULE_1__.getHookUnique),
 /* harmony export */   hook: () => (/* reexport safe */ _hook_js__WEBPACK_IMPORTED_MODULE_1__.hook),
@@ -33301,10 +33366,12 @@ const HOOK_LOGGER = {
         sb += this.mapClass(config, returnType);
         this.logInfo(sb, logId);
     },
-    printCall(config, className, methodName, argValues, argTypes, returnType, logId, isReplaced = false) {
+    printCall(config, className, methodName, argValues, argTypes, returnType, logId, isReplaced = false, caller) {
         if (!config.call)
             return;
         let sb = '';
+        if (caller)
+            sb += `(${caller}) `;
         // sb += dim(isReplaced ? italic('replace') : 'call');
         // sb += ' ';
         if (methodName !== '$init') {
@@ -33327,11 +33394,13 @@ const HOOK_LOGGER = {
         }
         this.logInfo(sb, logId);
     },
-    printReturn(config, returnValue, returnType, logId) {
+    printReturn(config, returnValue, returnType, logId, caller) {
         if (!config.return)
             return;
         const value = config.transform?.(returnValue, returnType, -1) ?? returnValue;
         let sb = '';
+        if (caller)
+            sb += `(${caller}) `;
         sb += dim('return');
         sb += ' ';
         sb += `${this.mapValue(value, returnType)}`;
@@ -33408,7 +33477,7 @@ const HOOK_LOGGER_JSON = {
         });
         _clockwork_logging__WEBPACK_IMPORTED_MODULE_1__.logger.info(msg);
     },
-    printCall(className, methodName, argValues, argTypes, returnType, logId, isReplaced = false) {
+    printCall(className, methodName, argValues, argTypes, returnType, logId, isReplaced = false, caller) {
         const msg = JSON.stringify({
             t: 'jvmcall',
             cn: this.mapClass(className),
@@ -33416,14 +33485,16 @@ const HOOK_LOGGER_JSON = {
             id: logId,
             av: argValues.map((arg) => this.mapValue(arg)),
             st: (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.stacktraceList)(),
+            caller,
         });
         _clockwork_logging__WEBPACK_IMPORTED_MODULE_1__.logger.info(msg);
     },
-    printReturn(returnValue, returnType, logId) {
+    printReturn(returnValue, returnType, logId, caller) {
         const msg = JSON.stringify({
             t: 'jvmreturn',
             id: logId,
             rv: this.mapValue(returnValue),
+            caller,
         });
         _clockwork_logging__WEBPACK_IMPORTED_MODULE_1__.logger.info(msg);
     },

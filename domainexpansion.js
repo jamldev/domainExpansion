@@ -26853,6 +26853,7 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ });
 /* harmony import */ var _clockwork_common__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! @clockwork/common */ "./packages/common/dist/index.js");
 /* harmony import */ var _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__ = __webpack_require__(/*! @clockwork/hooks */ "./packages/hooks/dist/index.js");
+/* harmony import */ var _clockwork_logging__WEBPACK_IMPORTED_MODULE_9__ = __webpack_require__(/*! @clockwork/logging */ "./packages/logging/dist/index.js");
 /* harmony import */ var _buildprop_js__WEBPACK_IMPORTED_MODULE_2__ = __webpack_require__(/*! ./buildprop.js */ "./packages/anticloak/dist/buildprop.js");
 /* harmony import */ var _hidemaps_js__WEBPACK_IMPORTED_MODULE_3__ = __webpack_require__(/*! ./hidemaps.js */ "./packages/anticloak/dist/hidemaps.js");
 /* harmony import */ var _country_js__WEBPACK_IMPORTED_MODULE_4__ = __webpack_require__(/*! ./country.js */ "./packages/anticloak/dist/country.js");
@@ -26870,6 +26871,46 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
+const settingsCallerKeys = new Set([
+    'adb_enabled',
+    'development_settings_enabled',
+]);
+const settingsFrameworkPrefixes = [
+    'java.',
+    'javax.',
+    'android.',
+    'com.android.',
+    'dalvik.',
+    'sun.',
+];
+let collectingSettingsStack = false;
+function getSettingsCaller() {
+    if (collectingSettingsStack)
+        return '<unknown>';
+    collectingSettingsStack = true;
+    try {
+        const frames = Java.use('java.lang.Exception').$new().getStackTrace();
+        for (let i = 0; i < frames.length; i++) {
+            const className = `${frames[i].getClassName()}`;
+            if (settingsFrameworkPrefixes.some((prefix) => className.startsWith(prefix)))
+                continue;
+            return `${className}.${frames[i].getMethodName()}`;
+        }
+    }
+    catch (_) { }
+    finally {
+        collectingSettingsStack = false;
+    }
+    return '<unknown>';
+}
+function logSettingsCaller(key) {
+    if (!settingsCallerKeys.has(key))
+        return;
+    try {
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_9__.logger.info({ tag: 'settings-caller' }, `${key} <- ${getSettingsCaller()}`);
+    }
+    catch (_) { }
+}
 function hookDevice(fn) {
     (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.enumerateMembers)(_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.Classes.Build, {
         onMatchField(clazz, member) {
@@ -26888,8 +26929,6 @@ function hookDevice(fn) {
 function hookSettings(fn) {
     const mapper = (key) => {
         switch (key) {
-            case 'development_settings_enabled':
-            case 'adb_enabled':
             case 'adb_wifi_enabled':
             case 'install_non_market_apps':
             case 'stay_on_while_plugged_in':
@@ -26902,6 +26941,9 @@ function hookSettings(fn) {
         (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.hook)(clazz, 'getInt', {
             loggingPredicate: _clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.Filter.settings,
             logging: { multiline: false, short: true },
+            before(_, ...args) {
+                logSettingsCaller(`${args[1]}`);
+            },
             replace: (0,_clockwork_hooks__WEBPACK_IMPORTED_MODULE_1__.ifKey)((key) => fn?.(key) ?? mapper(key), 1),
         });
     }
@@ -33020,37 +33062,6 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-function getCallingClass(hookedClassName) {
-    try {
-        const frames = (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_1__.stacktraceList)();
-        let fallback;
-        for (const frame of frames) {
-            const call = `${frame}`.split('(')[0];
-            const separator = call.lastIndexOf('.');
-            if (separator <= 0)
-                continue;
-            const className = call.substring(0, separator);
-            if (className === hookedClassName ||
-                className === 'java.lang.Exception' ||
-                className === 'android.util.Log') {
-                continue;
-            }
-            fallback ??= className;
-            if (!className.startsWith('java.') &&
-                !className.startsWith('javax.') &&
-                !className.startsWith('android.') &&
-                !className.startsWith('com.android.') &&
-                !className.startsWith('dalvik.') &&
-                !className.startsWith('sun.')) {
-                return className;
-            }
-        }
-        return fallback ?? hookedClassName;
-    }
-    catch (_) {
-        return hookedClassName;
-    }
-}
 function hook(clazzOrName, methodName, params = {}) {
     const { before, replace, after, logging, loggingPredicate } = params;
     const logger = (0,_logger_js__WEBPACK_IMPORTED_MODULE_4__.getLogger)(logging);
@@ -33076,21 +33087,14 @@ function hook(clazzOrName, methodName, params = {}) {
         logger.printHookMethod(methodName, argTypesString, returnTypeString, logId);
         methodDef.implementation = function (...params) {
             const doLog = loggingPredicate?.call(this, methodDef, ...params) ?? true;
-            const detectedClass = getCallingClass(classString);
-            _clockwork_logging__WEBPACK_IMPORTED_MODULE_2__.pushDetectedClass(detectedClass);
-            try {
-                doLog &&
-                    logger.printCall(classString, methodName, params, argTypesString, returnTypeString, logId, replace !== undefined);
-                before?.call(this, methodDef, ...params);
-                const retval = replace?.call(this, methodDef, ...params) ?? methodDef.call(this, ...params);
-                after?.call(this, methodDef, retval, ...params);
-                if (returnTypeString !== 'void')
-                    doLog && logger.printReturn(retval, returnTypeString, logId);
-                return retval;
-            }
-            finally {
-                _clockwork_logging__WEBPACK_IMPORTED_MODULE_2__.popDetectedClass();
-            }
+            doLog &&
+                logger.printCall(classString, methodName, params, argTypesString, returnTypeString, logId, replace !== undefined);
+            before?.call(this, methodDef, ...params);
+            const retval = replace?.call(this, methodDef, ...params) ?? methodDef.call(this, ...params);
+            after?.call(this, methodDef, retval, ...params);
+            if (returnTypeString !== 'void')
+                doLog && logger.printReturn(retval, returnTypeString, logId);
+            return retval;
         };
     }
 }
@@ -33786,7 +33790,7 @@ function getCallObjectHooks(envWrapper) {
                 }
                 const msg = formatCallObject(methodID, method, mappedArgs);
                 const addrRet = getAddrRet(this.context, this.returnAddress);
-                _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ detectedClass: method?.className }, `[${dim(name)}] ${msg} ${addrRet}`);
+                _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info(`[${dim(name)}] ${msg} ${addrRet}`);
             },
             onLeave({ jniEnv, method, jArgs }, retval) {
                 if (this.ignore || method?.isVoid)
@@ -33794,7 +33798,7 @@ function getCallObjectHooks(envWrapper) {
                 const mappedRetval = (0,_envWrapper_js__WEBPACK_IMPORTED_MODULE_1__.asExceptionSafe)(jniEnv, () => (0,_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.vs)(retval, method?.returnType, jniEnv));
                 const msg = formatCallObjectReturn(mappedRetval);
                 const addrRet = getAddrRet(this.context, this.returnAddress);
-                _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ detectedClass: method?.className }, `[${dim(name)}] ${msg} ${(0,_clockwork_native__WEBPACK_IMPORTED_MODULE_6__.addressOf)(addrRet)}`);
+                _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info(`[${dim(name)}] ${msg} ${(0,_clockwork_native__WEBPACK_IMPORTED_MODULE_6__.addressOf)(addrRet)}`);
                 if (method && jArgs)
                     afterCallObject.call(this, jniEnv, method, jArgs, retval);
             },
@@ -33938,21 +33942,16 @@ function afterCallObject(jniEnv, method, jArgs, retval) {
     if ([_clockwork_common__WEBPACK_IMPORTED_MODULE_0__.ClassesString.Settings$Secure, _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.ClassesString.Settings$Global].includes(method.className) &&
         method.name === 'getInt') {
         const key = frida_java_bridge__WEBPACK_IMPORTED_MODULE_7__["default"].cast(jArgs[1], Classes.String);
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'global', detectedClass: method.className }, `${key}`);
-        switch (`${key}`) {
-            case 'adb_enabled':
-            case 'development_settings_enabled':
-                retval.replace(ptr(0x0));
-        }
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'global' }, `${key}`);
     }
     if (method.name === 'getInstalledApplications') {
         const jobj = frida_java_bridge__WEBPACK_IMPORTED_MODULE_7__["default"].cast(retval, Classes.List);
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getInstalledApplications', detectedClass: method.className }, `${jobj}`);
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getInstalledApplications' }, `${jobj}`);
         jobj.clear();
     }
     if (method.className === _clockwork_common__WEBPACK_IMPORTED_MODULE_0__.ClassesString.SharedPreferences && method?.name === 'getItem') {
         const key = frida_java_bridge__WEBPACK_IMPORTED_MODULE_7__["default"].cast(jArgs[0], Classes.String);
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem', detectedClass: method.className }, `${key} -> ${retval}`);
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem' }, `${key} -> ${retval}`);
         const keyis = (k) => `${k}` === `${key}`;
         const replret = (v) => {
             const newval = (0,_envWrapper_js__WEBPACK_IMPORTED_MODULE_1__.asFunction)(jniEnv, _jni_js__WEBPACK_IMPORTED_MODULE_2__.JNI.NewStringUTF)(jniEnv, Memory.allocUtf8String(`${v}`));
@@ -33962,9 +33961,9 @@ function afterCallObject(jniEnv, method, jArgs, retval) {
     if ((method.className === 'com.cocos.lib.CocosLocalStorage' ||
         method.className === 'org.cocos3dx.lib.Cocos2dxLocalStorage') &&
         method.name === 'getItem') {
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem', id: method.className, detectedClass: method.className }, `${retval}`);
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem', id: method.className }, `${retval}`);
         const key = frida_java_bridge__WEBPACK_IMPORTED_MODULE_7__["default"].cast(jArgs[0], Classes.String);
-        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem', id: method.className, detectedClass: method.className }, `${key} -> ${retval}`);
+        _clockwork_logging__WEBPACK_IMPORTED_MODULE_5__.logger.info({ tag: 'getItem', id: method.className }, `${key} -> ${retval}`);
         const keyis = (k) => `${k}` === `${key}`;
         const replret = (v) => retval.replace((0,_envWrapper_js__WEBPACK_IMPORTED_MODULE_1__.asFunction)(jniEnv, _jni_js__WEBPACK_IMPORTED_MODULE_2__.JNI.NewStringUTF)(jniEnv, Memory.allocUtf8String(`${v}`)));
         keyis('hasPurchase') && _clockwork_cmodules__WEBPACK_IMPORTED_MODULE_8__.ProcMaps.printStacktrace(this.context), replret('true');
@@ -37525,11 +37524,8 @@ __webpack_require__.r(__webpack_exports__);
 /* harmony export */ __webpack_require__.d(__webpack_exports__, {
 /* harmony export */   Color: () => (/* reexport module object */ _color_js__WEBPACK_IMPORTED_MODULE_2__),
 /* harmony export */   error: () => (/* binding */ error),
-/* harmony export */   getDetectedClass: () => (/* binding */ getDetectedClass),
 /* harmony export */   log: () => (/* binding */ log),
 /* harmony export */   logger: () => (/* binding */ logger),
-/* harmony export */   popDetectedClass: () => (/* binding */ popDetectedClass),
-/* harmony export */   pushDetectedClass: () => (/* binding */ pushDetectedClass),
 /* harmony export */   subLogger: () => (/* binding */ subLogger)
 /* harmony export */ });
 /* harmony import */ var pino__WEBPACK_IMPORTED_MODULE_0__ = __webpack_require__(/*! pino */ "./node_modules/pino/browser.js");
@@ -37538,36 +37534,6 @@ __webpack_require__.r(__webpack_exports__);
 
 
 
-const detectedClassStacks = new Map();
-function detectedClassThreadId() {
-    try {
-        return Process.getCurrentThreadId();
-    }
-    catch (_) {
-        return 0;
-    }
-}
-function pushDetectedClass(className) {
-    if (!className)
-        return;
-    const tid = detectedClassThreadId();
-    const stack = detectedClassStacks.get(tid) ?? [];
-    stack.push(`${className}`);
-    detectedClassStacks.set(tid, stack);
-}
-function popDetectedClass() {
-    const tid = detectedClassThreadId();
-    const stack = detectedClassStacks.get(tid);
-    if (!stack)
-        return;
-    stack.pop();
-    if (stack.length === 0)
-        detectedClassStacks.delete(tid);
-}
-function getDetectedClass() {
-    const stack = detectedClassStacks.get(detectedClassThreadId());
-    return stack?.[stack.length - 1];
-}
 const logger = (0,pino__WEBPACK_IMPORTED_MODULE_0__.pino)({
     browser: {
         write: (o) => {
@@ -37582,11 +37548,6 @@ const logger = (0,pino__WEBPACK_IMPORTED_MODULE_0__.pino)({
                 const color = (0,_autocolor_js__WEBPACK_IMPORTED_MODULE_1__.getColor)(tag);
                 const ctag = `[${color(`${tag}`)}${id ? `:${id}` : ''}] `;
                 print = `${msg}`.replaceAll(/^/g, ctag);
-            }
-            const detectedClass = o.detectedClass ?? getDetectedClass();
-            if (detectedClass) {
-                const prefix = `(${detectedClass}) `;
-                print = `${print}`.replaceAll(/^/g, prefix);
             }
             if (print)
                 console.log(print);

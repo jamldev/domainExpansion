@@ -23,9 +23,34 @@ const MONITOR = {
     installedHooks: 0
 };
 
+const CATEGORY_COLORS = {
+    BATTERY: '\x1b[93m',
+    BOOT: '\x1b[90m',
+    'BOOT-ERROR': '\x1b[91m',
+    CARRIER: '\x1b[36m',
+    CRYPTO: '\x1b[95m',
+    DEBUG: '\x1b[91m',
+    EXEC: '\x1b[31m',
+    FILE: '\x1b[32m',
+    IDENTIFIER: '\x1b[94m',
+    INTENT: '\x1b[96m',
+    LOCALE: '\x1b[35m',
+    NETWORK: '\x1b[34m',
+    OKHTTP: '\x1b[94m',
+    PREF: '\x1b[36m',
+    PROPERTY: '\x1b[90m',
+    READY: '\x1b[92m',
+    SETTINGS: '\x1b[33m',
+    WEBVIEW: '\x1b[95m'
+};
+
 function logLine(category, message) {
+    if (category === 'HOOK') {
+        return;
+    }
     try {
-        console.log('[' + category + '] ' + message);
+        const color = CATEGORY_COLORS[category] || '\x1b[37m';
+        console.log(color + '[' + category + ']\x1b[0m ' + message);
     } catch (_) {
         // Observation must never break the target application's API call.
     }
@@ -381,6 +406,170 @@ function installSettingsHooks() {
             }
         );
     });
+    return hooks;
+}
+
+// Battery hooks
+function installBatteryHooks() {
+    let hooks = 0;
+
+    const BatteryManager = useClass('android.os.BatteryManager');
+    if (BatteryManager) {
+        hooks += installExact(
+            'BatteryManager.getIntProperty(int)',
+            BatteryManager,
+            'getIntProperty',
+            ['int'],
+            function (original) {
+                return function (propertyId) {
+                    const result = original.call(this, propertyId);
+                    const property = propertyId === 4 ? 'capacity' : String(propertyId);
+                    logLine('BATTERY', 'getIntProperty(' + property + ') -> ' + result);
+                    return result;
+                };
+            }
+        );
+    }
+
+    const Intent = useClass('android.content.Intent');
+    if (Intent) {
+        hooks += installExact(
+            'Intent.getIntExtra(String,int)',
+            Intent,
+            'getIntExtra',
+            ['java.lang.String', 'int'],
+            function (original) {
+                return function (key, defaultValue) {
+                    const result = original.call(this, key, defaultValue);
+                    const name = truncate(key, 80).toLowerCase();
+                    if (name === 'level' || name === 'scale' || name === 'status' ||
+                        name === 'plugged' || name === 'health' || name === 'temperature' ||
+                        name === 'voltage') {
+                        logLine(
+                            'BATTERY',
+                            'Intent.getIntExtra(' + quoted(key, 80) +
+                            ', default=' + defaultValue + ') -> ' + result
+                        );
+                    }
+                    return result;
+                };
+            }
+        );
+    }
+
+    return hooks;
+}
+
+// Carrier and locale hooks
+function installCarrierAndLocaleHooks() {
+    let hooks = 0;
+
+    const TelephonyManager = useClass('android.telephony.TelephonyManager');
+    if (TelephonyManager) {
+        hooks += installExact(
+            'TelephonyManager.getSimState()',
+            TelephonyManager,
+            'getSimState',
+            [],
+            function (original) {
+                return function () {
+                    const result = original.call(this);
+                    const states = {
+                        0: 'UNKNOWN', 1: 'ABSENT', 2: 'PIN_REQUIRED', 3: 'PUK_REQUIRED',
+                        4: 'NETWORK_LOCKED', 5: 'READY', 6: 'NOT_READY',
+                        7: 'PERM_DISABLED', 8: 'CARD_IO_ERROR', 9: 'CARD_RESTRICTED',
+                        10: 'LOADED', 11: 'PRESENT'
+                    };
+                    logLine('CARRIER', 'getSimState() -> ' + result + ' (' + (states[result] || 'UNKNOWN') + ')');
+                    return result;
+                };
+            }
+        );
+
+        [
+            'getSimOperatorName',
+            'getSimOperator',
+            'getSimCountryIso',
+            'getNetworkOperatorName',
+            'getNetworkOperator',
+            'getNetworkCountryIso'
+        ].forEach(function (methodName) {
+            hooks += installExact(
+                'TelephonyManager.' + methodName + '()',
+                TelephonyManager,
+                methodName,
+                [],
+                function (original) {
+                    return function () {
+                        const result = original.call(this);
+                        let detail = '';
+                        if (methodName === 'getSimOperator' && result !== null) {
+                            const operatorCode = String(result);
+                            if (operatorCode.length >= 3) {
+                                detail = ' mcc=' + quoted(operatorCode.substring(0, 3), 8);
+                            }
+                        }
+                        logLine('CARRIER', methodName + '() -> ' + quoted(result, 160) + detail);
+                        return result;
+                    };
+                }
+            );
+        });
+    }
+
+    const Locale = useClass('java.util.Locale');
+    if (Locale) {
+        ['toLanguageTag', 'getLanguage', 'getCountry'].forEach(function (methodName) {
+            hooks += installExact(
+                'Locale.' + methodName + '()',
+                Locale,
+                methodName,
+                [],
+                function (original) {
+                    return function () {
+                        const result = original.call(this);
+                        logLine('LOCALE', methodName + '() -> ' + quoted(result, 120));
+                        return result;
+                    };
+                }
+            );
+        });
+    }
+
+    const TimeZone = useClass('java.util.TimeZone');
+    if (TimeZone) {
+        hooks += installExact(
+            'TimeZone.getID()',
+            TimeZone,
+            'getID',
+            [],
+            function (original) {
+                return function () {
+                    const result = original.call(this);
+                    logLine('LOCALE', 'TimeZone.getID() -> ' + quoted(result, 160));
+                    return result;
+                };
+            }
+        );
+    }
+
+    const Currency = useClass('java.util.Currency');
+    if (Currency) {
+        hooks += installExact(
+            'Currency.getCurrencyCode()',
+            Currency,
+            'getCurrencyCode',
+            [],
+            function (original) {
+                return function () {
+                    const result = original.call(this);
+                    logLine('LOCALE', 'Currency.getCurrencyCode() -> ' + quoted(result, 40));
+                    return result;
+                };
+            }
+        );
+    }
+
     return hooks;
 }
 
@@ -2705,51 +2894,71 @@ function installIntentHooks() {
     return installContextIntentHooks() + installIntentMutationHooks();
 }
 
-// Main entry point
-setImmediate(function () {
-    Java.perform(function () {
-        logLine('HOOK', 'Starting Java API monitor');
+// Main entry point. Keep this outside Java.perform() so a successful script
+// load is always visible, even if the Java runtime is not ready yet.
+logLine('BOOT', 'domainexpansion.js loaded');
+
+let monitorStarted = false;
+
+function startMonitor() {
+    const javaAvailable = typeof Java !== 'undefined' && Java.available;
+    logLine('BOOT', 'startMonitor called; Java.available=' + javaAvailable);
+
+    if (!javaAvailable) {
+        logLine('BOOT', 'Java is not available yet; retrying');
+        setTimeout(startMonitor, 100);
+        return;
+    }
+
+    if (monitorStarted) {
+        return;
+    }
+    monitorStarted = true;
+
+    function installFrameworkHooks() {
+        logLine('BOOT', 'Installing framework hooks');
 
         if (CONFIG.deoptimizeBootImage) {
             try {
                 Java.deoptimizeBootImage();
-                logLine('HOOK', 'Boot image deoptimized');
+                logLine('BOOT', 'Boot image deoptimized');
             } catch (error) {
-                logLine('HOOK', 'Boot-image deoptimization unavailable: ' + conciseError(error));
-                if (CONFIG.deoptimizeEverythingFallback) {
-                    try {
-                        Java.deoptimizeEverything();
-                        logLine('HOOK', 'Full deoptimization enabled by explicit fallback option');
-                    } catch (fallbackError) {
-                        logLine('HOOK', 'Full deoptimization unavailable: ' + conciseError(fallbackError));
-                    }
-                }
+                logLine(
+                    'BOOT',
+                    'Boot-image deoptimization unavailable: ' +
+                    (error && error.message ? error.message : String(error))
+                );
             }
         }
 
         let installedGroups = 0;
-        const totalGroups = 13;
-
-        // Every group is isolated by runGroup's try/catch. A missing class or
-        // overload therefore cannot stop later groups from being installed.
         if (runGroup('Settings', installSettingsHooks)) installedGroups++;
-        if (runGroup('Debugger', installDebuggerHooks)) installedGroups++;
-        if (runGroup('System properties', installSystemPropertyHooks)) installedGroups++;
+        if (runGroup('Battery', installBatteryHooks)) installedGroups++;
+        if (runGroup('Carrier and locale', installCarrierAndLocaleHooks)) installedGroups++;
         if (runGroup('Filesystem', installFilesystemHooks)) installedGroups++;
         if (runGroup('Command execution', installCommandExecutionHooks)) installedGroups++;
-        if (runGroup('Package manager', installPackageManagerHooks)) installedGroups++;
-        if (runGroup('SharedPreferences', installSharedPreferencesHooks)) installedGroups++;
-        if (runGroup('Basic network', installNetworkHooks)) installedGroups++;
-        if (runGroup('OkHttp', installOkHttpHooks)) installedGroups++;
-        if (runGroup('WebView', installWebViewHooks)) installedGroups++;
-        if (runGroup('Crypto and encoding', installCryptoHooks)) installedGroups++;
-        if (runGroup('Device identifiers', installIdentifierHooks)) installedGroups++;
-        if (runGroup('Intents and components', installIntentHooks)) installedGroups++;
 
         logLine(
-            'HOOK',
-            'Java API monitor ready: ' + installedGroups + '/' + totalGroups +
-            ' groups installed (' + MONITOR.installedHooks + ' hooks)'
+            'READY',
+            'Diagnostic monitor ready: ' + installedGroups +
+            '/5 groups installed; hooks=' + MONITOR.installedHooks
         );
-    });
-});
+    }
+
+    try {
+        if (typeof Java.performNow === 'function') {
+            logLine('BOOT', 'Entering Java.performNow');
+            Java.performNow(installFrameworkHooks);
+        } else {
+            logLine('BOOT', 'Java.performNow unavailable; using Java.perform');
+            Java.perform(installFrameworkHooks);
+        }
+    } catch (error) {
+        monitorStarted = false;
+        logLine('BOOT-ERROR', error && error.stack ? error.stack : String(error));
+    }
+}
+
+// Run synchronously while spawning so hooks are ready before Frida resumes the
+// application's main thread. startMonitor() schedules its own retry if needed.
+startMonitor();
